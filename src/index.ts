@@ -16,14 +16,14 @@ const sketch = (p5: P5) => {
   }
 
   p5.windowResized = () => {
-    let dimension = Math.min(600, Math.min(p5.windowWidth, p5.windowHeight))
+    let dimension = Math.min(1000, Math.min(p5.windowWidth, p5.windowHeight))
     p5.createCanvas(dimension, dimension)
 
-    tunnelManager.refreshSize(p5)
+    tunnelManager.refreshSize()
   }
 
   p5.draw = () => {
-    tunnelManager.renderTunnel(p5)
+    tunnelManager.drawTunnel()
   }
 }
 

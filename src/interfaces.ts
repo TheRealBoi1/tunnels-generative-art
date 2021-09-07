@@ -15,8 +15,12 @@ export interface MultiPolygonShape {
 }
 
 export enum Shape {
-  SQUARE,
   TRIANGLE,
+  SQUARE,
+  PENTAGON,
+  HEXAGON,
+  HEPTAGON,
+  OCTAGON,
 }
 
 export interface PropertyVariant {
@@ -36,8 +40,8 @@ export interface OutlineWidthVariant extends PropertyVariant {
   value: number
 }
 
-export interface OutlineColorVariant extends PropertyVariant {
-  value: number[]
+export interface ColorPaletteVariant extends PropertyVariant {
+  value: string[]
 }
 
 export interface PropertyVariantCount extends PropertyVariant {

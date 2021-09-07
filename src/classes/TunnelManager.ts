@@ -1,156 +1,200 @@
 import * as P5 from 'p5'
 import {
-  MultiPolygonShape,
-  OutlineColorVariant,
+  ColorPaletteVariant,
   OutlineWidthVariant,
   PropertyVariant,
   PropertyVariantCount,
   Shape,
   ShapeVariant,
   SpeedVariant,
-  Vertex,
 } from '../interfaces'
 import {
+  COLOR_PALETTE_VARIANTS,
   FILL_COLOR_VARIANT_COUNTS,
-  FILL_COLOR_VARIANTS,
   MAX_ANGLE_GAP,
   MAX_DOOR_NUMBER,
+  MAX_SCALE_OFFSET,
   MIN_ANGLE_GAP,
   MIN_DOOR_NUMBER,
+  MIN_SCALE_OFFSET,
   OUTLINE_COLOR_VARIANT_COUNTS,
-  OUTLINE_COLOR_VARIANTS,
   OUTLINE_WIDTH_VARIANT_COUNTS,
   OUTLINE_WIDTH_VARIANTS,
+  SCALE_OFFSET_VARIANT_COUNTS,
   SHAPE_VARIANT_COUNTS,
   SHAPE_VARIANTS,
   SPEED_VARIANTS,
 } from '../constants'
+import { drawPolygon } from '../helpers/generic/geometry'
 
-interface LayerItem {
-  image?: P5.Image
-  uvShape: MultiPolygonShape
-  uvPosition: Vertex
-}
-
-interface Layer {
-  items: LayerItem[]
+interface Door {
+  angle: number
+  shape: Shape
+  fillColor: string
+  outlineColor: string
+  outlineWidth: number
+  scaleOffset: number
+  image: P5.Image
 }
 
 export class TunnelManager {
-  private graphics!: P5.Graphics
+  private readonly p5!: P5
+  private graphics!: any
 
-  private firstDoorIndex: number = 0
-  private doorImages: P5.Image[] = []
+  private travelledDoorsCount: number = 0
+  private doors: Door[] = []
 
   private readonly MIN_PROGRESS_RENDER = 0.04
   private readonly MIN_PROGRESS_FADE_IN = 0.04
   private readonly MAX_PROGRESS_FADE_IN = 0.05
   private readonly MIN_PROGRESS_FADE_OUT = 0.99
-  private readonly MAX_PROGRESS_FADE_OUT = 1.00
+  private readonly MAX_PROGRESS_FADE_OUT = 1.0
 
-  private readonly SHAPE_SCALE_COMPENSATION = 1
-  private readonly BACKGROUND_SCALE_COMPENSATION = 2
-  private readonly RENDER_SCALE_COMPENSATION = 1.5
+  // Scale of the shapes that cuts the door images relative to the door image size
+  private readonly DOOR_SHAPE_SCALE = 0.35
 
-  private doorNumber!: number
-  private angleGap!: number
+  // Scale of the saved door images relative to the canvas size
+  // This is to compensate for how slow the tint function is
+  private readonly DOOR_IMAGE_SCALE = 1
+
+  private readonly RENDER_ZOOM = 2.0
+
   private speed!: SpeedVariant
   private shapes!: ShapeVariant[]
   private outlineWidths!: OutlineWidthVariant[]
-  private fillColors!: OutlineColorVariant[]
-  private outlineColors!: OutlineColorVariant[]
+  private colorPalette!: ColorPaletteVariant
+
+  private doorNumber!: number
+  private angleGap!: number
+  private scaleOffsets!: number[]
+  private fillColors!: string[]
+  private outlineColors!: string[]
 
   public constructor(p5: P5) {
-    this.graphics = p5.createGraphics(p5.width * this.BACKGROUND_SCALE_COMPENSATION, p5.height * this.BACKGROUND_SCALE_COMPENSATION)
-
-    this.generateProperties(p5)
-    this.createImages(p5)
+    this.p5 = p5
+    this.graphics = this.p5.createGraphics(
+      this.p5.width * this.DOOR_IMAGE_SCALE,
+      this.p5.height * this.DOOR_IMAGE_SCALE
+    )
+    this.generateTunnelProperties()
+    this.createDoors()
   }
 
-  public refreshSize(p5: P5) {
-    this.graphics = p5.createGraphics(p5.width * this.BACKGROUND_SCALE_COMPENSATION, p5.height * this.BACKGROUND_SCALE_COMPENSATION)
-    this.doorImages.splice(0)
-    this.createImages(p5)
+  public refreshSize() {
+    this.graphics = this.p5.createGraphics(
+      this.p5.width * this.DOOR_IMAGE_SCALE,
+      this.p5.height * this.DOOR_IMAGE_SCALE
+    )
+    this.createDoors()
   }
 
-  public renderTunnel(p5: P5) {
+  public drawTunnel() {
     let framesPerDoor = Math.round(this.speed.value / this.doorNumber)
-    if (p5.frameCount % framesPerDoor === 0) {
-      this.firstDoorIndex += 1
-      let newImage = this.createTunnelLayerImage(p5, this.firstDoorIndex)
-      this.doorImages.splice(this.doorImages.length - 1, 1)
-      this.doorImages.splice(0, 0, newImage)
+    if (this.p5.frameCount % framesPerDoor === 0) {
+      this.travelledDoorsCount += 1
+      let newDoor = this.createDoor(0)
+      this.doors.splice(this.doors.length - 1, 1)
+      this.doors.splice(0, 0, newDoor)
     }
 
-    let fillColor = this.fillColors[0].value
-    p5.background(fillColor[0], fillColor[1], fillColor[2], fillColor[3])
-    p5.imageMode(p5.CENTER)
-    p5.translate(p5.width / 2, p5.height / 2)
+    let fillColor = this.fillColors[0]
+    this.p5.background(fillColor)
+    this.p5.imageMode(this.p5.CENTER)
     for (let i = 0; i < this.doorNumber; i++) {
-      let gapSize = 1 / this.doorNumber
-      let gapProgress = (p5.frameCount % framesPerDoor) / framesPerDoor
-      let progress =
-        (i % this.doorNumber) / this.doorNumber + gapSize * gapProgress
-      let scale = progress * this.RENDER_SCALE_COMPENSATION
-
-      if (progress > this.MIN_PROGRESS_RENDER) {
-        if (progress > this.MIN_PROGRESS_FADE_IN && progress < this.MAX_PROGRESS_FADE_IN) {
-          let tintProgress = (progress - this.MIN_PROGRESS_FADE_IN) / (this.MAX_PROGRESS_FADE_IN - this.MIN_PROGRESS_FADE_IN)
-
-          p5.tint(255, tintProgress * 255)
-          p5.scale(scale)
-          p5.image(this.doorImages[i], 0, 0)
-          p5.scale(1 / scale)
-          p5.noTint()
-        }
-        else if (progress > this.MIN_PROGRESS_FADE_OUT && progress < this.MAX_PROGRESS_FADE_OUT) {
-          let tintProgress = (progress - this.MIN_PROGRESS_FADE_OUT) / (this.MAX_PROGRESS_FADE_OUT - this.MIN_PROGRESS_FADE_OUT)
-
-          p5.tint(255, (1 - tintProgress) * 255)
-          p5.scale(scale)
-          p5.image(this.doorImages[i], 0, 0)
-          p5.scale(1 / scale)
-          p5.noTint()
-        }
-        else {
-          p5.scale(scale)
-          p5.image(this.doorImages[i], 0, 0)
-          p5.scale(1 / scale)
-        }
-      }
-
+      this.drawDoor(i, framesPerDoor)
     }
   }
 
-  private createImages(p5: P5) {
-    if (this.doorImages.length < this.doorNumber) {
+  private drawDoor(localDoorIndex: number, framesPerDoor: number) {
+    let draw = (scale: number = 1, alpha?: number) => {
+      let door = this.doors[localDoorIndex]
+
+      if (alpha) this.p5.tint(255, alpha)
+
+      let imageScale = (scale / this.DOOR_SHAPE_SCALE) * this.RENDER_ZOOM
+      if (door.scaleOffset) imageScale *= 1 - door.scaleOffset
+
+      this.p5.translate(this.p5.width / 2, this.p5.width / 2)
+      this.p5.scale(imageScale)
+      this.p5.image(door.image, 0, 0)
+      this.p5.scale(1 / imageScale)
+      this.p5.translate(-this.p5.width / 2, -this.p5.width / 2)
+
+      let outlineScale = scale * this.RENDER_ZOOM
+      if (door.scaleOffset) outlineScale *= 1 - door.scaleOffset
+
+      let strokeColor = this.p5.color(door.outlineColor)
+      if (alpha) strokeColor.setAlpha(alpha)
+
+      this.p5.fill(0, 0, 0, 0)
+      this.p5.strokeWeight(door.outlineWidth)
+      this.p5.stroke(strokeColor)
+      this.drawDoorShape(door.shape, outlineScale, door.angle)
+      this.p5.noStroke()
+
+      if (alpha) this.p5.noTint()
+    }
+
+    let gapSize = 1 / this.doorNumber
+    let gapProgress = (this.p5.frameCount % framesPerDoor) / framesPerDoor
+    let progress = (localDoorIndex % this.doorNumber) / this.doorNumber + gapSize * gapProgress
+
+    if (progress > this.MIN_PROGRESS_RENDER) {
+      if (progress > this.MIN_PROGRESS_FADE_IN && progress < this.MAX_PROGRESS_FADE_IN) {
+        let tintProgress =
+          (progress - this.MIN_PROGRESS_FADE_IN) /
+          (this.MAX_PROGRESS_FADE_IN - this.MIN_PROGRESS_FADE_IN)
+        draw(progress, tintProgress * 255)
+      } else if (progress > this.MIN_PROGRESS_FADE_OUT && progress < this.MAX_PROGRESS_FADE_OUT) {
+        let tintProgress =
+          (progress - this.MIN_PROGRESS_FADE_OUT) /
+          (this.MAX_PROGRESS_FADE_OUT - this.MIN_PROGRESS_FADE_OUT)
+        draw(progress, (1 - tintProgress) * 255)
+      } else {
+        draw(progress)
+      }
+    }
+  }
+
+  private createDoors() {
+    this.doors.splice(0)
+    if (this.doors.length < this.doorNumber) {
       for (let i = 0; i < this.doorNumber; i++) {
-        let doorIndex = this.firstDoorIndex + i
-        this.doorImages.push(this.createTunnelLayerImage(p5, doorIndex))
+        this.doors.push(this.createDoor(i))
       }
     }
   }
 
-  private createTunnelLayerImage(p5: P5, doorIndex: number) {
-    let angle = doorIndex * this.angleGap
-    let shape = this.shapes[doorIndex % this.shapes.length].value
-    let fillColor = this.fillColors[doorIndex % this.fillColors.length].value
-    let outlineColor =
-      this.outlineColors[doorIndex % this.outlineColors.length].value
+  private createDoor(localDoorIndex: number): Door {
+    let globalDoorIndex = localDoorIndex + this.travelledDoorsCount
+    let angle = globalDoorIndex * this.angleGap
+    let scaleOffset = this.scaleOffsets[globalDoorIndex % this.outlineWidths.length]
+    let shape = this.shapes[globalDoorIndex % this.shapes.length].value
+    let fillColor = this.fillColors[globalDoorIndex % this.fillColors.length]
+    let outlineColor = this.outlineColors[globalDoorIndex % this.outlineColors.length]
     let outlineWidth =
-      this.outlineWidths[doorIndex % this.outlineWidths.length].value * p5.width
+      this.outlineWidths[globalDoorIndex % this.outlineWidths.length].value * this.p5.width
 
-    this.graphics.background(...fillColor)
+    return {
+      angle,
+      shape,
+      scaleOffset,
+      fillColor,
+      outlineColor,
+      outlineWidth,
+      image: this.createDoorImage(angle, shape, fillColor),
+    }
+  }
+
+  private createDoorImage(angle: number, shape: Shape, fillColor: string) {
+    let backgroundColor = this.p5.color(fillColor)
+    this.graphics.background(backgroundColor)
     this.graphics.erase()
     this.graphics.fill(255, 255, 255, 255)
-    this.graphics.strokeWeight(outlineWidth)
-    this.graphics.stroke(...outlineColor)
-    this.drawTunnelShape(p5, shape, angle, this.graphics)
+    this.drawDoorShape(shape, this.DOOR_SHAPE_SCALE, angle, this.graphics)
     this.graphics.noErase()
-    this.graphics.fill(0, 0, 0, 0)
-    this.drawTunnelShape(p5, shape, angle, this.graphics)
 
-    let image = p5.createImage(this.graphics.width, this.graphics.height)
+    let image = this.p5.createImage(this.graphics.width, this.graphics.height)
     image.copy(
       this.graphics,
       0,
@@ -167,98 +211,121 @@ export class TunnelManager {
     return image
   }
 
-  private drawTunnelShape(p5: P5, shape: Shape, angle: number, graphics?: P5.Graphics) {
-    switch (shape) {
-      case Shape.SQUARE:
-        this.drawSquare(p5, angle, graphics)
-        break
-      case Shape.TRIANGLE:
-        this.drawTriangle(p5, angle, graphics)
+  private drawDoorShape(shape: Shape, scale: number, angle: number, graphics?: P5.Graphics) {
+    let drawShape = () => {
+      switch (shape) {
+        case Shape.TRIANGLE:
+          drawPolygon(this.p5, 0, 0, this.p5.width / 2, 3, graphics)
+          break
+        case Shape.SQUARE:
+          drawPolygon(this.p5, 0, 0, this.p5.width / 2, 4, graphics)
+          break
+        case Shape.PENTAGON:
+          drawPolygon(this.p5, 0, 0, this.p5.width / 2, 5, graphics)
+          break
+        case Shape.HEXAGON:
+          drawPolygon(this.p5, 0, 0, this.p5.width / 2, 6, graphics)
+          break
+        case Shape.HEPTAGON:
+          drawPolygon(this.p5, 0, 0, this.p5.width / 2, 7, graphics)
+          break
+        case Shape.OCTAGON:
+          drawPolygon(this.p5, 0, 0, this.p5.width / 2, 8, graphics)
+          break
+      }
+    }
+
+    let target: any = graphics || this.p5
+    target.angleMode(this.p5.DEGREES)
+    target.translate(target.width / 2, target.height / 2)
+    target.scale(scale)
+    target.rotate(angle)
+    drawShape()
+    target.rotate(-angle)
+    target.scale(1 / scale)
+    target.translate(-target.width / 2, -target.height / 2)
+  }
+
+  private generateTunnelProperties() {
+    this.doorNumber = Math.round(this.p5.random(MIN_DOOR_NUMBER, MAX_DOOR_NUMBER))
+    let angleSign = Math.round(this.p5.random(0, 1)) ? 1 : -1
+    this.angleGap = angleSign * Math.round(this.p5.random(MIN_ANGLE_GAP, MAX_ANGLE_GAP))
+    this.speed = <SpeedVariant>this.getRandomPropertyVariant(SPEED_VARIANTS)
+    this.shapes = <ShapeVariant[]>(
+      this.getRandomPropertyVariant(SHAPE_VARIANTS, SHAPE_VARIANT_COUNTS)
+    )
+    this.outlineWidths = <OutlineWidthVariant[]>(
+      this.getRandomPropertyVariant(OUTLINE_WIDTH_VARIANTS, OUTLINE_WIDTH_VARIANT_COUNTS)
+    )
+    this.colorPalette = <ColorPaletteVariant>this.getRandomPropertyVariant(COLOR_PALETTE_VARIANTS)
+
+    this.fillColors = []
+    this.outlineColors = []
+    let colorsListCopy = [...this.colorPalette.value]
+    let fillColorsCount = <PropertyVariantCount>(
+      this.handleProbabilityList(FILL_COLOR_VARIANT_COUNTS)
+    )
+    let outlineColorsCount = <PropertyVariantCount>(
+      this.handleProbabilityList(OUTLINE_COLOR_VARIANT_COUNTS)
+    )
+    for (let i = 0; i < fillColorsCount.value + outlineColorsCount.value; i++) {
+      let randomIndex = Math.round(this.p5.random(0, colorsListCopy.length - 1))
+
+      if (i < fillColorsCount.value) {
+        this.fillColors.push(colorsListCopy[randomIndex])
+      } else {
+        this.outlineColors.push(colorsListCopy[randomIndex])
+      }
+      colorsListCopy.splice(randomIndex, 1)
+    }
+
+    this.scaleOffsets = []
+    let scaleOffsetCountVariant = <PropertyVariantCount>(
+      this.handleProbabilityList(SCALE_OFFSET_VARIANT_COUNTS)
+    )
+    for (let i = 0; i < scaleOffsetCountVariant.value; i++) {
+      this.scaleOffsets.push(this.p5.random(MIN_SCALE_OFFSET, MAX_SCALE_OFFSET))
     }
   }
 
-  private drawSquare(p5: P5, angle: number, graphics?: P5.Graphics) {
-    let target = graphics || p5
-    target.angleMode(p5.DEGREES)
-    target.rectMode(p5.CENTER)
-    target.translate(target.width / 2, target.height / 2)
-    target.scale(this.SHAPE_SCALE_COMPENSATION)
-    target.rotate(angle)
-    target.rect(0, 0, p5.width, p5.width)
-    target.rotate(-angle)
-    target.scale(1 / this.SHAPE_SCALE_COMPENSATION)
-    target.translate(-target.width / 2, -target.height / 2)
-  }
-
-  private drawTriangle(p5: P5, angle: number, graphics?: P5.Graphics) {
-    let target = graphics || p5
-
-    let len = p5.width / 2
-    let triV1x=0
-    let triV1y=-len
-    let triV2x=len
-    let triV2y=len
-    let triV3x=-len
-    let triV3y=len
-    target.angleMode(p5.DEGREES)
-    target.translate(target.width / 2, target.height / 2)
-    target.scale(this.SHAPE_SCALE_COMPENSATION)
-    target.rotate(angle)
-    target.beginShape(p5.TRIANGLES)
-    target.vertex(triV1x,triV1y)
-    target.vertex(triV2x,triV2y)
-    target.vertex(triV3x,triV3y)
-    target.endShape()
-    target.rotate(-angle)
-    target.scale(1 / this.SHAPE_SCALE_COMPENSATION)
-    target.translate(-target.width / 2, -target.height / 2)
-  }
-
-  private generateProperties(p5: P5) {
-    this.doorNumber = Math.round(p5.random(MIN_DOOR_NUMBER, MAX_DOOR_NUMBER))
-    this.angleGap = Math.round(p5.random(MIN_ANGLE_GAP, MAX_ANGLE_GAP))
-    this.speed = <SpeedVariant>this.getRandomPropertyVariant(p5, SPEED_VARIANTS)
-    this.shapes = <ShapeVariant[]>this.getRandomPropertyVariant(p5, SHAPE_VARIANTS, SHAPE_VARIANT_COUNTS)
-    this.outlineWidths = <OutlineWidthVariant[]>this.getRandomPropertyVariant(p5, OUTLINE_WIDTH_VARIANTS, OUTLINE_WIDTH_VARIANT_COUNTS)
-    this.fillColors = <OutlineColorVariant[]>this.getRandomPropertyVariant(p5, FILL_COLOR_VARIANTS, FILL_COLOR_VARIANT_COUNTS)
-    this.outlineColors = <OutlineColorVariant[]>this.getRandomPropertyVariant(p5, OUTLINE_COLOR_VARIANTS, OUTLINE_COLOR_VARIANT_COUNTS)
-  }
-
   private getRandomPropertyVariant(
-    p5: P5,
     variantList: PropertyVariant[],
     propertyVariantCountProbabilityList?: PropertyVariantCount[]
   ): PropertyVariant | PropertyVariant[] | undefined {
     if (propertyVariantCountProbabilityList) {
       let variantListCopy = [...variantList]
       let selectedVariants: PropertyVariant[] = []
-      let variantCount = <PropertyVariantCount>this.handleProbabilityList(p5, propertyVariantCountProbabilityList)
+      let variantCount = <PropertyVariantCount>(
+        this.handleProbabilityList(propertyVariantCountProbabilityList)
+      )
 
       for (let i = 0; i < variantCount.value; i++) {
-        let selectedItem: PropertyVariant = this.handleProbabilityList(p5, variantListCopy)
+        let selectedItem: PropertyVariant = this.handleProbabilityList(variantListCopy)
         selectedVariants.push(selectedItem)
 
-        variantListCopy.splice(variantListCopy.findIndex((item) => {return item === selectedItem}),1)
+        variantListCopy.splice(
+          variantListCopy.findIndex((item) => {
+            return item === selectedItem
+          }),
+          1
+        )
       }
 
-    return selectedVariants
+      return selectedVariants
     } else {
-      return this.handleProbabilityList(p5, variantList)
+      return this.handleProbabilityList(variantList)
     }
-  },
+  }
 
-  private handleProbabilityList(p5: P5, list: PropertyVariant[]): PropertyVariant | undefined {
+  private handleProbabilityList(list: PropertyVariant[]): PropertyVariant | undefined {
     let totalProbability = list.reduce((accumulator, item) => {
       return accumulator + item.probability
     }, 0)
 
-    let random = p5.random(0, totalProbability)
+    let random = this.p5.random(0, totalProbability)
     let traveledProbability = 0
     return list.find((item) => {
-      if (
-        random >= traveledProbability &&
-        random <= traveledProbability + item.probability
-      ) {
+      if (random >= traveledProbability && random <= traveledProbability + item.probability) {
         return true
       } else {
         traveledProbability += item.probability
