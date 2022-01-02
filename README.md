@@ -1,12 +1,10 @@
-# P5.js Typescript Boilerplate
+# P5.js Generative Art Project
 
-P5.js boilerplate with Typescript support and Webpack enabled.
+A quick project done for fun that simulates an infinite tunnel with varrying properties being travelled through.
+This was done at first to be submitted as a project for https://www.artblocks.io/, but I figured it wasn't creative enough and chose
+to simply publish the code for portfolio purposes.
 
-## Installation
-
-Clone the repository
-
-`git clone --depth=1 git@github.com:nathan-kansu/p5-typescript-boilerplate.git <YOUR_PROJECT_NAME>`
+Feel free to use this however you want.
 
 ## Setup
 
