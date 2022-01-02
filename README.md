@@ -1,6 +1,6 @@
 # P5.js Generative Art Project
 
-A quick project done for fun that simulates an infinite tunnel with varrying properties being travelled through.
+A quick project that simulates an infinite tunnel with varrying properties being travelled through.
 This was done at first to be submitted as a project for https://www.artblocks.io/, but I figured it wasn't creative enough and chose
 to simply publish the code for portfolio purposes.
 
