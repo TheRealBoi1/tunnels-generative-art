@@ -300,8 +300,10 @@ export class TunnelManager {
       )
 
       for (let i = 0; i < variantCount.value; i++) {
-        let selectedItem: PropertyVariant = this.handleProbabilityList(variantListCopy)
-        selectedVariants.push(selectedItem)
+        let selectedItem = this.handleProbabilityList(variantListCopy)
+        if (selectedItem) {
+          selectedVariants.push(selectedItem)
+        }
 
         variantListCopy.splice(
           variantListCopy.findIndex((item) => {
